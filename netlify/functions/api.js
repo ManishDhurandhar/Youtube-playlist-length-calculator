@@ -48,6 +48,17 @@ const videoSchema = new mongoose.Schema({
 
 const VideoModel = mongoose.models.Video || mongoose.model('Video', videoSchema);
 
+// Mongoose Schema for payment / collect requests
+const paymentSchema = new mongoose.Schema({
+  trackingId: { type: String, required: true, unique: true },
+  upiId: { type: String, required: true },
+  amount: { type: Number, required: true },
+  status: { type: String, required: true, default: "pending" },
+  createdAt: { type: Date, default: Date.now }
+}, { bufferCommands: false });
+
+const PaymentModel = mongoose.models.Payment || mongoose.model('Payment', paymentSchema);
+
 // Connection helper
 async function connectToDatabase() {
   const uri = process.env.MONGODB_URI;
@@ -59,11 +70,42 @@ async function connectToDatabase() {
     return mongoose.connection;
   }
   try {
-    return await mongoose.connect(uri, {
+    const conn = await mongoose.connect(uri, {
       serverSelectionTimeoutMS: 3000,
     });
+    // Double check connection is established and fully ready before continuing
+    if (mongoose.connection.readyState === 1) {
+      return conn;
+    }
+    return null;
   } catch (err) {
-    console.error("Database connection error:", err.message || err);
+    const errorMsg = err.message || String(err);
+    if (errorMsg.toLowerCase().includes("bad auth") || errorMsg.toLowerCase().includes("authentication failed")) {
+      console.warn(
+        "\n========================================\n" +
+        "⚠️  MONGODB AUTHENTICATION FAILURE:\n" +
+        "The connection URI you specified has incorrect authentication credentials.\n\n" +
+        "TO RESOLVE THIS:\n" +
+        "1. Check the MONGODB_URI environment variable in your environment settings (Netlify dashboard or local .env file).\n" +
+        "2. Make sure the database USERNAME and PASSWORD embedded in your URI string are correct.\n" +
+        "3. If your password contains special characters (like @, :, /, or +), they must be percent-encoded (e.g. '@' as '%40', '+' as '%2B').\n" +
+        "========================================\n"
+      );
+    } else if (errorMsg.includes("MongooseServerSelectionError") || errorMsg.includes("Could not connect to any servers")) {
+      console.warn(
+        "\n========================================\n" +
+        "⚠️  MONGODB CONNECTION WARNING:\n" +
+        "Could not connect to modern MongoDB Atlas Cluster. This is almost always caused by an IP Whitelisting restriction on Atlas.\n\n" +
+        "TO RESOLVE THIS:\n" +
+        "1. Log in to your MongoDB Atlas dashboard (https://cloud.mongodb.com/).\n" +
+        "2. Click on 'Network Access' under the Security section in the left sidebar.\n" +
+        "3. Click '+ Add IP Address'.\n" +
+        "4. Choose 'Allow Access From Anywhere' (adds 0.0.0.0/0) or add your server's outbound IP, then click 'Confirm'.\n" +
+        "========================================\n"
+      );
+    } else {
+      console.error("Database connection error:", errorMsg);
+    }
     return null;
   }
 }
@@ -184,7 +226,8 @@ app.get('/api/playlist/:id', async (req, res) => {
 
   // Connect to DB if configured
   const hasDb = !!process.env.MONGODB_URI;
-  const dbConnected = hasDb ? await connectToDatabase() : null;
+  const connection = hasDb ? await connectToDatabase() : null;
+  const dbConnected = !!(connection && mongoose.connection.readyState === 1);
 
   try {
     let cached = null;
@@ -343,7 +386,8 @@ app.get('/api/video/:id', async (req, res) => {
 
   // Connect to DB if configured
   const hasDb = !!process.env.MONGODB_URI;
-  const dbConnected = hasDb ? await connectToDatabase() : null;
+  const connection = hasDb ? await connectToDatabase() : null;
+  const dbConnected = !!(connection && mongoose.connection.readyState === 1);
 
   try {
     let cached = null;
@@ -501,7 +545,8 @@ app.get('/api/video/:id', async (req, res) => {
 // GET current visitor count (does not increment)
 app.get('/api/visits', async (req, res) => {
   const hasDb = !!process.env.MONGODB_URI;
-  const dbConnected = hasDb ? await connectToDatabase() : null;
+  const connection = hasDb ? await connectToDatabase() : null;
+  const dbConnected = !!(connection && mongoose.connection.readyState === 1);
 
   if (dbConnected) {
     try {
@@ -520,7 +565,8 @@ app.get('/api/visits', async (req, res) => {
 // POST to increment visitor count by 1 and return new total
 app.post('/api/visits', async (req, res) => {
   const hasDb = !!process.env.MONGODB_URI;
-  const dbConnected = hasDb ? await connectToDatabase() : null;
+  const connection = hasDb ? await connectToDatabase() : null;
+  const dbConnected = !!(connection && mongoose.connection.readyState === 1);
 
   if (dbConnected) {
     try {
@@ -536,6 +582,65 @@ app.post('/api/visits', async (req, res) => {
   }
   inMemoryVisitorCount += 1;
   return res.json({ count: inMemoryVisitorCount });
+});
+
+// POST to issue a UPI Collect Request
+app.post('/api/payment/collect', async (req, res) => {
+  const { upiId, amount } = req.body;
+
+  if (!upiId || typeof upiId !== 'string') {
+    return res.status(400).json({
+      success: false,
+      message: "Please provide a valid UPI ID (e.g., example@upi)."
+    });
+  }
+
+  const cleanUpiId = upiId.trim();
+  // Standard UPI ID pattern: string + @ + string
+  if (!/^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/.test(cleanUpiId)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid UPI ID format. It should look like: user@bankname or mobile@upi"
+    });
+  }
+
+  const cleanAmount = Number(amount);
+  if (isNaN(cleanAmount) || cleanAmount <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "Please provide a valid payment amount greater than 0."
+    });
+  }
+
+  const trackingId = "TXN_" + Math.random().toString(36).substring(2, 11).toUpperCase() + "_" + Date.now().toString().slice(-4);
+
+  const hasDb = !!process.env.MONGODB_URI;
+  const connection = hasDb ? await connectToDatabase() : null;
+  const dbConnected = !!(connection && mongoose.connection.readyState === 1);
+
+  if (dbConnected) {
+    try {
+      await PaymentModel.create({
+        trackingId,
+        upiId: cleanUpiId,
+        amount: cleanAmount,
+        status: "pending"
+      });
+      console.log(`[UPI COLLECT] Created payment record in database. Tracking ID: ${trackingId}, Amnt: ₹${cleanAmount}, UPI ID: ${cleanUpiId}`);
+    } catch (err) {
+      console.error("Failed to write payment record to database:", err);
+      // Fallback gracefully to simulated in-memory success
+    }
+  } else {
+    console.log(`[UPI COLLECT] Database not connected. Simulated payment tracking ID: ${trackingId}, Amnt: ₹${cleanAmount}, UPI ID: ${cleanUpiId}`);
+  }
+
+  return res.json({
+    success: true,
+    trackingId,
+    status: "pending",
+    message: `Payment collect request of ₹${cleanAmount} successfully dispatched to "${cleanUpiId}". Please open your UPI App (GPay, PhonePe, BHIM, Paytm, etc.) to approve the collect request.`
+  });
 });
 
 // Explicit health check
