@@ -1,113 +1,39 @@
 import express from 'express';
 import serverless from 'serverless-http';
-import mongoose from 'mongoose';
-
-// Disable mongoose buffering globally to prevent queries from hanging when connection fails
-mongoose.set('bufferCommands', false);
 
 // Initialize express app
 const app = express();
 app.use(express.json());
 
-// Load in-memory database as mock if MONGODB_URI is missing
+// Load in-memory database as mock
 const mockDb = new Map();
 const mockVideoDb = new Map();
 let inMemoryVisitorCount = 224195;
 
-// Mongoose Schema for visitor count
-const visitorSchema = new mongoose.Schema({
-  key: { type: String, required: true, unique: true },
-  count: { type: Number, required: true, default: 224195 }
-}, { bufferCommands: false });
+// Lightweight local database/mongoose replacements to prevent compilation errors
+// and run purely in memory (100% database-free)
+const mongoose = {
+  connection: {
+    readyState: 0
+  }
+};
 
-const VisitorModel = mongoose.models.Visitor || mongoose.model('Visitor', visitorSchema);
+const Playlist = {
+  findOne: async () => null,
+  create: async () => null
+};
 
-// Mongoose Schema
-const playlistSchema = new mongoose.Schema({
-  playlistId: { type: String, required: true, unique: true },
-  totalSeconds: { type: Number, required: true },
-  title: { type: String },
-  channelTitle: { type: String },
-  videoCount: { type: Number },
-  thumbnail: { type: String },
-  createdAt: { type: Date, default: Date.now }
-}, { bufferCommands: false });
+const VideoModel = {
+  findOne: async () => null,
+  create: async () => null
+};
 
-// Since compilation occurs in serverless or container, compile Model strictly
-const Playlist = mongoose.models.Playlist || mongoose.model('Playlist', playlistSchema);
+const PaymentModel = {
+  create: async () => null
+};
 
-// Mongoose Schema for single videos
-const videoSchema = new mongoose.Schema({
-  videoId: { type: String, required: true, unique: true },
-  seconds: { type: Number, required: true },
-  title: { type: String },
-  channelTitle: { type: String },
-  thumbnail: { type: String },
-  createdAt: { type: Date, default: Date.now }
-}, { bufferCommands: false });
-
-const VideoModel = mongoose.models.Video || mongoose.model('Video', videoSchema);
-
-// Mongoose Schema for payment / collect requests
-const paymentSchema = new mongoose.Schema({
-  trackingId: { type: String, required: true, unique: true },
-  upiId: { type: String, required: true },
-  amount: { type: Number, required: true },
-  status: { type: String, required: true, default: "pending" },
-  createdAt: { type: Date, default: Date.now }
-}, { bufferCommands: false });
-
-const PaymentModel = mongoose.models.Payment || mongoose.model('Payment', paymentSchema);
-
-// Connection helper
 async function connectToDatabase() {
-  const uri = process.env.MONGODB_URI;
-  if (!uri) {
-    return null;
-  }
-  // Only return connection if fully connected (readyState === 1)
-  if (mongoose.connection.readyState === 1) {
-    return mongoose.connection;
-  }
-  try {
-    const conn = await mongoose.connect(uri, {
-      serverSelectionTimeoutMS: 3000,
-    });
-    // Double check connection is established and fully ready before continuing
-    if (mongoose.connection.readyState === 1) {
-      return conn;
-    }
-    return null;
-  } catch (err) {
-    const errorMsg = err.message || String(err);
-    if (errorMsg.toLowerCase().includes("bad auth") || errorMsg.toLowerCase().includes("authentication failed")) {
-      console.warn(
-        "\n========================================\n" +
-        "⚠️  MONGODB AUTHENTICATION FAILURE:\n" +
-        "The connection URI you specified has incorrect authentication credentials.\n\n" +
-        "TO RESOLVE THIS:\n" +
-        "1. Check the MONGODB_URI environment variable in your environment settings (Netlify dashboard or local .env file).\n" +
-        "2. Make sure the database USERNAME and PASSWORD embedded in your URI string are correct.\n" +
-        "3. If your password contains special characters (like @, :, /, or +), they must be percent-encoded (e.g. '@' as '%40', '+' as '%2B').\n" +
-        "========================================\n"
-      );
-    } else if (errorMsg.includes("MongooseServerSelectionError") || errorMsg.includes("Could not connect to any servers")) {
-      console.warn(
-        "\n========================================\n" +
-        "⚠️  MONGODB CONNECTION WARNING:\n" +
-        "Could not connect to modern MongoDB Atlas Cluster. This is almost always caused by an IP Whitelisting restriction on Atlas.\n\n" +
-        "TO RESOLVE THIS:\n" +
-        "1. Log in to your MongoDB Atlas dashboard (https://cloud.mongodb.com/).\n" +
-        "2. Click on 'Network Access' under the Security section in the left sidebar.\n" +
-        "3. Click '+ Add IP Address'.\n" +
-        "4. Choose 'Allow Access From Anywhere' (adds 0.0.0.0/0) or add your server's outbound IP, then click 'Confirm'.\n" +
-        "========================================\n"
-      );
-    } else {
-      console.error("Database connection error:", errorMsg);
-    }
-    return null;
-  }
+  return null;
 }
 
 // Validates active YouTube API key pattern
@@ -544,41 +470,38 @@ app.get('/api/video/:id', async (req, res) => {
 
 // GET current visitor count (does not increment)
 app.get('/api/visits', async (req, res) => {
-  const hasDb = !!process.env.MONGODB_URI;
-  const connection = hasDb ? await connectToDatabase() : null;
-  const dbConnected = !!(connection && mongoose.connection.readyState === 1);
-
-  if (dbConnected) {
-    try {
-      const counter = await VisitorModel.findOne({ key: "total_site_visitors" });
-      if (counter) {
-        return res.json({ count: counter.count });
+  try {
+    const counterId = 'manish-yt-playlist-calculator-2026';
+    // Using global fetch built-in in Node 18+
+    const response = await fetch(`https://api.counterapi.dev/v1/${counterId}/visits`);
+    if (response.ok) {
+      const data = await response.json();
+      if (data && typeof data.count === 'number') {
+        inMemoryVisitorCount = data.count;
+        return res.json({ count: data.count });
       }
-      return res.json({ count: 224195 });
-    } catch (err) {
-      console.error("Error fetching visitor count from DB:", err);
     }
+  } catch (err) {
+    console.warn("Backend failed to fetch counterapi.dev, using in-memory fallback.");
   }
   return res.json({ count: inMemoryVisitorCount });
 });
 
 // POST to increment visitor count by 1 and return new total
 app.post('/api/visits', async (req, res) => {
-  const hasDb = !!process.env.MONGODB_URI;
-  const connection = hasDb ? await connectToDatabase() : null;
-  const dbConnected = !!(connection && mongoose.connection.readyState === 1);
-
-  if (dbConnected) {
-    try {
-      const counter = await VisitorModel.findOneAndUpdate(
-        { key: "total_site_visitors" },
-        { $inc: { count: 1 } },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
-      );
-      return res.json({ count: counter.count });
-    } catch (err) {
-      console.error("Error incrementing visitor count in DB:", err);
+  try {
+    const counterId = 'manish-yt-playlist-calculator-2026';
+    // Using global fetch built-in in Node 18+
+    const response = await fetch(`https://api.counterapi.dev/v1/${counterId}/visits/up`);
+    if (response.ok) {
+      const data = await response.json();
+      if (data && typeof data.count === 'number') {
+        inMemoryVisitorCount = data.count;
+        return res.json({ count: data.count });
+      }
     }
+  } catch (err) {
+    console.warn("Backend failed to increment counterapi.dev, using in-memory increment.");
   }
   inMemoryVisitorCount += 1;
   return res.json({ count: inMemoryVisitorCount });

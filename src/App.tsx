@@ -89,7 +89,7 @@ export default function App() {
   // Live visitor count state
   const [visitorCount, setVisitorCount] = useState<number>(224195);
 
-  // Live Visitor count effect
+  // Live Visitor count effect - secure proxy through Express api
   useEffect(() => {
     fetch("/api/visits", { method: "POST" })
       .then((res) => {
