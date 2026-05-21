@@ -87,7 +87,7 @@ export default function App() {
   const [customSpeedInput, setCustomSpeedInput] = useState<string>("1.0");
 
   // Live visitor count state
-  const [visitorCount, setVisitorCount] = useState<number>(224195);
+  const [visitorCount, setVisitorCount] = useState<number | null>(null);
 
   // Live Visitor count effect - secure proxy through Express api
   useEffect(() => {
@@ -110,55 +110,6 @@ export default function App() {
   const [supportAmount, setSupportAmount] = useState<number>(50);
   const [customAmountText, setCustomAmountText] = useState("50");
   const [isCopied, setIsCopied] = useState(false);
-
-  // Fallback UPI and QR states
-  const [userUpiId, setUserUpiId] = useState("");
-  const [activePaymentTab, setActivePaymentTab] = useState<"collect" | "qr" | "intent">("collect");
-  const [isRequestingCollect, setIsRequestingCollect] = useState(false);
-  const [collectResponse, setCollectResponse] = useState<{ success: boolean; message: string; trackingId?: string } | null>(null);
-  const [collectError, setCollectError] = useState<string | null>(null);
-
-  const handleCollectSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!userUpiId) {
-      setCollectError("Please enter your UPI ID.");
-      return;
-    }
-    const cleanId = userUpiId.trim();
-    if (!cleanId.includes("@")) {
-      setCollectError("UPI ID must contain '@' symbol (e.g. mobile@upi).");
-      return;
-    }
-    if (supportAmount <= 0) {
-      setCollectError("Please pick or enter a valid amount first.");
-      return;
-    }
-
-    setCollectError(null);
-    setCollectResponse(null);
-    setIsRequestingCollect(true);
-
-    try {
-      const response = await fetch("/api/payment/collect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ upiId: cleanId, amount: supportAmount })
-      });
-      const resData = await response.json();
-      if (!response.ok) {
-        throw new Error(resData.message || "Collect request failed.");
-      }
-      setCollectResponse({
-        success: true,
-        message: resData.message,
-        trackingId: resData.trackingId
-      });
-    } catch (err: any) {
-      setCollectError(err.message || "Failed to trigger collect request.");
-    } finally {
-      setIsRequestingCollect(false);
-    }
-  };
 
   // Theme Sync effect
   useEffect(() => {
@@ -1070,204 +1021,63 @@ export default function App() {
                 />
               </div>
 
-              {/* Payment Method Segment Tabs */}
-              <div className={`p-1 rounded-xl flex gap-1 mb-4 ${
-                theme === "dark" ? "bg-zinc-950/80" : "bg-zinc-100"
-              }`}>
-                {(["collect", "qr", "intent"] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => {
-                      setActivePaymentTab(tab);
-                      setCollectResponse(null);
-                      setCollectError(null);
-                    }}
-                    className={`flex-1 py-1 px-1 text-[10px] font-extrabold rounded-lg capitalize transition-all cursor-pointer ${
-                      activePaymentTab === tab
-                        ? theme === "dark"
-                          ? "bg-zinc-855 text-white shadow-xs"
-                          : "bg-white text-zinc-950 shadow-xs border border-zinc-200/50"
-                        : theme === "dark"
-                        ? "text-zinc-500 hover:text-zinc-300 pointer-events-auto"
-                        : "text-zinc-650 hover:text-zinc-900 pointer-events-auto"
-                    }`}
-                  >
-                    {tab === "collect" && "⚡ UPI Request"}
-                    {tab === "qr" && "🖼️ QR Code"}
-                    {tab === "intent" && "📱 Launch App"}
-                  </button>
-                ))}
-              </div>
+              {/* Sleek Dynamic QR Code Display */}
+              <div className="space-y-4 mb-4 text-center">
+                <p className={`text-[10.5px] font-bold leading-normal ${
+                  theme === "dark" ? "text-zinc-400" : "text-zinc-650"
+                }`}>
+                  How to Pay: Scan the QR code below on your mobile UPI app, or copy the UPI ID to transfer manually.
+                </p>
 
-              {/* Segmented Tab Body Content */}
-              {activePaymentTab === "collect" && (
-                <form onSubmit={handleCollectSubmit} className="space-y-3 mb-4 text-left">
-                  <div className="space-y-1">
-                    <label className={`text-[9.5px] font-bold uppercase tracking-wider ${
-                      theme === "dark" ? "text-zinc-400" : "text-zinc-600"
-                    }`}>
-                      Enter your UPI ID to trigger payment request
-                    </label>
-                    <div className="relative flex items-center">
-                      <span className="absolute left-3 text-zinc-500">
-                        <Smartphone className="w-3.5 h-3.5" />
-                      </span>
-                      <input
-                        type="text"
-                        placeholder="e.g. user@okhdfcbank"
-                        value={userUpiId}
-                        onChange={(e) => {
-                          setUserUpiId(e.target.value);
-                          setCollectError(null);
-                        }}
-                        className={`w-full py-2 pl-9 pr-24 text-[11px] font-mono font-bold rounded-lg border outline-none focus:ring-1 focus:ring-zinc-400 ${
-                          theme === "dark" ? "bg-zinc-950 border-zinc-800 text-white" : "bg-zinc-50 border-zinc-250 text-zinc-900"
-                        }`}
-                      />
-                      <button
-                        type="submit"
-                        disabled={isRequestingCollect || supportAmount <= 0}
-                        className={`absolute right-1.5 px-3 py-1 text-[10px] font-extrabold rounded-md transition-all flex items-center gap-1 cursor-pointer ${
-                          isRequestingCollect || supportAmount <= 0
-                            ? "bg-zinc-500/20 text-zinc-500 cursor-not-allowed"
-                            : theme === "dark"
-                            ? "bg-zinc-150 text-zinc-955 hover:bg-zinc-50"
-                            : "bg-zinc-900 text-white hover:bg-zinc-800"
-                        }`}
-                      >
-                        {isRequestingCollect ? (
-                          <span className="w-2.5 h-2.5 border-2 border-zinc-400 border-t-transparent animate-spin rounded-full"></span>
-                        ) : (
-                          <Send className="w-2.5 h-2.5" />
-                        )}
-                        <span>Request</span>
-                      </button>
-                    </div>
-                  </div>
+                <div className={`p-4 rounded-2xl flex flex-col justify-center items-center border relative overflow-hidden ${
+                  theme === "dark" ? "bg-zinc-950/40 border-zinc-800" : "bg-zinc-50 border-zinc-200 shadow-xs"
+                } mx-auto max-w-[190px]`}>
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
+                      `upi://pay?pa=manishdhurandharbob@ybl&pn=Manish&am=${supportAmount}&cu=INR&tn=Coffee%20for%20Manish`
+                    )}`}
+                    alt={`UPI QR Code for ₹${supportAmount}`}
+                    className="w-32 h-32 object-contain rounded-lg shadow-xs bg-white p-1"
+                    referrerPolicy="no-referrer"
+                  />
+                  
+                  <p className={`text-[9px] font-extrabold font-mono tracking-wider mt-3 ${
+                    theme === "dark" ? "text-zinc-300" : "text-zinc-700"
+                  }`}>
+                    manishdhurandharbob@ybl
+                  </p>
+                  <p className="text-[8.5px] font-extrabold text-zinc-500 mt-0.5 font-mono">
+                    Support Amount: ₹{supportAmount}
+                  </p>
+                </div>
 
-                  {collectError && (
-                    <div className="flex items-start gap-1.5 text-[10px] text-red-500 font-semibold bg-red-500/5 p-2 rounded-lg border border-red-500/10">
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                      <span>{collectError}</span>
-                    </div>
-                  )}
-
-                  {collectResponse && (
-                    <div className="text-[10px] font-semibold bg-emerald-500/5 text-emerald-500 p-2.5 rounded-lg border border-emerald-500/10 space-y-1">
-                      <div className="flex items-center gap-1.5 font-bold">
-                        <Check className="w-3.5 h-3.5 shrink-0 text-emerald-500" />
-                        <span>Request Sent!</span>
-                      </div>
-                      <p className="opacity-90 leading-tight">{collectResponse.message}</p>
-                      {collectResponse.trackingId && (
-                        <div className="pt-1 select-all font-mono text-[8px] opacity-70">
-                          Transaction Ref: {collectResponse.trackingId}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <p className={`text-[9.5px] leading-relaxed text-center font-bold ${
+                {/* Elegant copy bar for UPI ID */}
+                <div className="text-left space-y-1">
+                  <label className={`text-[9px] font-extrabold uppercase tracking-widest block ${
                     theme === "dark" ? "text-zinc-500" : "text-zinc-600"
                   }`}>
-                    ⚡ High success rate on mobile & desktop! Approve the prompt in GPay/PhonePe to complete.
-                  </p>
-                </form>
-              )}
-
-              {activePaymentTab === "qr" && (
-                <div className="space-y-4 mb-4 text-center">
-                  <p className={`text-[10px] font-bold ${
-                    theme === "dark" ? "text-zinc-400" : "text-zinc-650"
-                  }`}>
-                    Scan this dynamic QR on GPay / PhonePe to pay <span className={theme === "dark" ? "text-white" : "text-zinc-950"}>₹{supportAmount}</span>
-                  </p>
-
-                  <div className={`p-4 rounded-2xl flex flex-col justify-center items-center border relative overflow-hidden ${
-                    theme === "dark" ? "bg-zinc-950/40 border-zinc-800" : "bg-zinc-50 border-zinc-200 shadow-xs"
-                  } mx-auto max-w-[190px]`}>
-                    <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
-                        `upi://pay?pa=manishdhurandharbob@ybl&pn=Manish&am=${supportAmount}&cu=INR&tn=Coffee%20for%20Manish`
-                      )}`}
-                      alt={`UPI QR Code for ₹${supportAmount}`}
-                      className="w-32 h-32 object-contain rounded-lg shadow-sm bg-white p-1"
-                      referrerPolicy="no-referrer"
-                    />
-                    
-                    <p className={`text-[8.5px] font-extrabold font-mono tracking-wider mt-3 ${
-                      theme === "dark" ? "text-zinc-300" : "text-zinc-700"
-                    }`}>
-                      manishdhurandharbob@ybl
-                    </p>
-                    <p className="text-[8px] font-bold text-zinc-500 mt-0.5 font-mono">
-                      Target Amount: ₹{supportAmount}
-                    </p>
-                  </div>
-
-                  {/* UPI Copy bar inside QR */}
+                    UPI ID:
+                  </label>
                   <div className={`flex items-center rounded-lg overflow-hidden border ${
-                    theme === "dark" ? "bg-zinc-950 border-zinc-800" : "bg-zinc-50 border-zinc-200"
+                    theme === "dark" ? "bg-zinc-950 border-zinc-800" : "bg-zinc-50 border-zinc-205"
                   }`}>
-                    <div className={`flex-grow px-3 py-1.5 text-left text-[9.5px] font-mono truncate font-bold ${
-                      theme === "dark" ? "text-zinc-400" : "text-zinc-750"
+                    <div className={`flex-grow px-3 py-2 text-left text-[11px] font-mono truncate font-bold ${
+                      theme === "dark" ? "text-zinc-300" : "text-zinc-750"
                     }`}>
                       {upiId}
                     </div>
                     <button
                       onClick={copyUPIId}
-                      className={`px-3 py-1.5 hover:opacity-90 transition-colors flex items-center gap-1 text-[9px] font-bold cursor-pointer shrink-0 ${
-                        theme === "dark" ? "bg-zinc-100 text-zinc-900" : "bg-zinc-900 text-white"
+                      className={`px-3 py-2 hover:opacity-90 transition-all flex items-center gap-1.5 text-[10px] font-black cursor-pointer shrink-0 ${
+                        theme === "dark" ? "bg-zinc-100 text-zinc-950" : "bg-zinc-900 text-white"
                       }`}
                     >
-                      {isCopied ? <Check className="w-2.5 h-2.5" /> : <Copy className="w-2.5 h-2.5" />}
-                      <span>{isCopied ? "Copied" : "Copy"}</span>
+                      {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{isCopied ? "Copied" : "Copy UPI ID"}</span>
                     </button>
                   </div>
                 </div>
-              )}
-
-              {activePaymentTab === "intent" && (
-                <div className="space-y-3.5 mb-4 text-left">
-                  <p className={`text-[10px] leading-normal font-semibold ${
-                    theme === "dark" ? "text-zinc-400" : "text-zinc-650"
-                  }`}>
-                    This initiates a direct App-Switch launch to GPay, PhonePe, or Paytm installed on this device.
-                  </p>
-
-                  <div className={`p-2.5 rounded-lg border flex items-start gap-1.5 text-[9.5px] font-semibold leading-relaxed ${
-                    theme === "dark" ? "bg-amber-500/5 border-amber-500/10 text-amber-400" : "bg-amber-50 border-amber-200 text-amber-800"
-                  }`}>
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-500" />
-                    <span>
-                      ⚠️ <strong>Mobile Browser Constraint:</strong> Some web-views inside social media apps or secure browsers block direct intent links. If nothing launches, please use the <strong>⚡ UPI Request</strong> tab above.
-                    </span>
-                  </div>
-
-                  <button
-                    disabled={supportAmount <= 0}
-                    onClick={() => {
-                      if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
-                        window.location.href = upiLink;
-                      } else {
-                        alert(`UPI Redirecting Simulation! Merchant: ${upiId} to receive ₹${supportAmount}`);
-                      }
-                    }}
-                    className={`w-full py-2.5 rounded-lg font-bold text-xs tracking-wide transition-all text-center cursor-pointer flex items-center justify-center gap-1.5 ${
-                      supportAmount > 0
-                        ? theme === "dark"
-                          ? "bg-white text-black hover:bg-zinc-100"
-                          : "bg-zinc-900 text-white hover:bg-zinc-800"
-                        : theme === "dark"
-                        ? "bg-zinc-800/10 text-zinc-500 cursor-not-allowed"
-                        : "bg-zinc-200/50 text-zinc-400 cursor-not-allowed"
-                    }`}
-                  >
-                    <Smartphone className="w-3.5 h-3.5" />
-                    <span>Pay ₹{supportAmount} with Installed UPI App</span>
-                  </button>
-                </div>
-              )}
+              </div>
 
               {/* Secure transaction badge */}
               <div className="flex items-center justify-center gap-1.5 text-[9px] font-bold text-zinc-500 pt-3 border-t border-dashed border-zinc-850">
@@ -1348,7 +1158,7 @@ export default function App() {
           theme === "dark" ? "bg-zinc-950/40 border-zinc-800 text-zinc-400" : "bg-white border-zinc-250 text-zinc-600"
         }`}>
           <Globe className="w-3.5 h-3.5 text-red-600 animate-pulse" />
-          <span>Total Site Visitors: <b className={theme === "dark" ? "text-zinc-100" : "text-zinc-950"}>{visitorCount.toLocaleString()}</b></span>
+          <span>Total Site Visitors: <b className={theme === "dark" ? "text-zinc-100" : "text-zinc-950"}>{visitorCount !== null ? visitorCount.toLocaleString() : "..."}</b></span>
         </div>
       </footer>
 
