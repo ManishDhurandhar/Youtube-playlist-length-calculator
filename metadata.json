@@ -1,0 +1,6 @@
+{
+  "name": "Youtube Playlist length calculator",
+  "description": "Calculate the total length of any YouTube playlist with local caching to conserve API limits.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,5 @@
+# Allow all search engine crawlers to discover and page index the site
+User-agent: *
+Allow: /
+
+Sitemap: https://ais-pre-ia5gbth3qkejnsvhno6c2y-246936387736.asia-southeast1.run.app/sitemap.xml
